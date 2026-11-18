@@ -8,6 +8,7 @@ on:
     paths: [generate.mjs, "avatar_*.jpg", .github/workflows/update-card.yml]
 permissions:
   contents: write
+concurrency: update-card
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -17,8 +18,6 @@ jobs:
         with:
           node-version: 22
       - run: node generate.mjs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"

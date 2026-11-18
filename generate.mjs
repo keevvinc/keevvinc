@@ -10,6 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const CONFIG = {
   user: "keevvinc",
   name: "Kevin",
+  joined: "2015-11-13", // GitHub sign-up date (fixed, so no API call)
   intro: [
     "Software developer from Slovakia. Most of my work lives",
     "in private repos, but the door's open. Say hi.",
@@ -39,17 +40,11 @@ async function fetchData() {
     const n = m[2].match(/^([\d,]+) contribution/);
     if (c) c.count = n ? +n[1].replace(/,/g, "") : 0;
   }
-  if (cells.size < 300) throw new Error(`calendar parse failed (${cells.size} cells)`);
-  let profile = {};
-  try {
-    const headers = { ...ua, ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) };
-    profile = await (await fetch(`https://api.github.com/users/${CONFIG.user}`, { headers })).json();
-  } catch {}
-  return {
-    days: [...cells.values()].sort((a, b) => a.date.localeCompare(b.date)),
-    createdAt: profile.created_at ?? "2015-11-13T00:00:00Z",
-    generatedAt: new Date().toISOString(),
-  };
+  const days = [...cells.values()].sort((a, b) => a.date.localeCompare(b.date));
+  if (days.length < 300) throw new Error(`calendar parse failed (${days.length} cells)`);
+  // Coloured squares but no counts means the tooltip format changed: fail rather than publish zeros.
+  if (days.some((d) => d.level) && !days.some((d) => d.count)) throw new Error("tooltip parse failed: no counts");
+  return { days, generatedAt: new Date().toISOString() };
 }
 
 function stats(data) {
@@ -64,7 +59,7 @@ function stats(data) {
   for (const x of d) wd[new Date(`${x.date}T12:00:00Z`).getUTCDay()] += x.count;
   const peak = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][wd.indexOf(Math.max(...wd))];
   const now = new Date(data.generatedAt);
-  const created = new Date(data.createdAt);
+  const created = new Date(`${CONFIG.joined}T00:00:00Z`);
   const years = Math.floor((now - created) / (365.25 * 864e5));
   return { total, last30, best, longest, active, peak, years, since: created.getUTCFullYear() };
 }
@@ -115,7 +110,8 @@ function render(data, avatars, theme) {
   ["#ff5f57", "#febc2e", "#28c840"].forEach((c, i) => body.push(`<circle cx="${22 + i * 20}" cy="18" r="6" fill="${c}"/>`));
   body.push(`<text x="${W / 2}" y="23" text-anchor="middle" fill="${t.muted}" font-size="13">${CONFIG.user} — ~</text>`);
 
-  // portrait (left): avatar with duotone + scanlines baked in (tools/bake-avatar.mjs), orbiting motto
+  // portrait (left): avatar_*.jpg are the GitHub avatar with the ember duotone + scanlines baked in once
+  // (not done here, to keep the image cheap to animate); re-bake them when the profile photo changes.
   const cx = 205, cy = 268, r = 138;
   defs.push(`<clipPath id="face"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath>`);
   defs.push(`<radialGradient id="halo"><stop offset="0.6" stop-color="${t.accent1}" stop-opacity="0.35"/><stop offset="1" stop-color="${t.accent1}" stop-opacity="0"/></radialGradient>`);
@@ -197,12 +193,13 @@ function render(data, avatars, theme) {
   const hy = 528, cs = 13, gap = 3, step = cs + gap;
   const ncol = Math.max(...data.days.map((d) => d.col)) + 1;
   const hx = Math.round((W - (30 + ncol * step)) / 2) + 30;
-  let lastMonth = -1;
+  const labels = [];
   for (const d of data.days) {
-    if (d.row !== 0) continue;
     const m = +d.date.slice(5, 7) - 1;
-    if (m !== lastMonth && d.col < ncol - 1) { body.push(`<text class="in" style="animation-delay:2.3s" x="${hx + d.col * step}" y="${hy - 4}" fill="${t.muted}" font-size="13">${MONTHS[m]}</text>`); lastMonth = m; }
+    if (d.row === 0 && d.col < ncol - 1 && m !== labels.at(-1)?.m) labels.push({ col: d.col, m });
   }
+  if (labels[1]?.col - labels[0].col < 3) labels.shift(); // first month too short to fit its name, as on GitHub
+  for (const { col, m } of labels) body.push(`<text class="in" style="animation-delay:2.3s" x="${hx + col * step}" y="${hy - 4}" fill="${t.muted}" font-size="13">${MONTHS[m]}</text>`);
   ["Mon", "Wed", "Fri"].forEach((n, i) => body.push(`<text class="in" style="animation-delay:2.3s" x="${hx - 8}" y="${hy + 10 + (1 + i * 2) * step + 10}" text-anchor="end" fill="${t.muted}" font-size="13">${n}</text>`));
   for (const d of data.days) {
     const x = hx + d.col * step, y = hy + 6 + d.row * step, isBest = d === st.best;
@@ -226,7 +223,7 @@ text,tspan{white-space:pre}
 .art{animation:zoom .9s cubic-bezier(.2,.8,.2,1) .1s both;transform-box:fill-box;transform-origin:center}
 /* every loop is finite and ends on its resting frame: once settled the image stops repainting */
 .motto{animation:fade 1s .6s both}
-.ring{transform-origin:205px 268px;animation:rot 30s linear .6s}
+.ring{transform-origin:${cx}px ${cy}px;animation:rot 30s linear .6s}
 .breathe{animation:halo 4s ease-in-out 4}
 .in{animation:rise .55s cubic-bezier(.2,.8,.2,1) both}
 .cell{transform-box:fill-box;transform-origin:center;animation:pop .45s cubic-bezier(.3,1.6,.5,1) both}
@@ -247,7 +244,7 @@ ${Array.from({ length: 10 }, (_, d) => `@keyframes spin${10 + d}{from{transform:
 @keyframes type{from{width:0}}
 @keyframes move{from{transform:translateX(0)}to{transform:translateX(54px)}}
 @keyframes blink{50%{opacity:0}}
-@keyframes scan{0%{opacity:0;transform:translateY(0)}5%{opacity:.35}95%{opacity:.35}100%{opacity:0;transform:translateY(276px)}}
+@keyframes scan{0%{opacity:0;transform:translateY(0)}5%{opacity:.35}95%{opacity:.35}100%{opacity:0;transform:translateY(${2 * r}px)}}
 @keyframes breathe{50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}.cursor{transform:translateX(54px)}}`;
 
