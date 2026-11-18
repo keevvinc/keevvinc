@@ -8,6 +8,7 @@ on:
     paths: [generate.mjs, "avatar_*.jpg", .github/workflows/update-card.yml]
 permissions:
   contents: write
+  actions: write # lets the keep-alive step re-enable this workflow
 concurrency: update-card
 jobs:
   update:
@@ -27,3 +28,9 @@ jobs:
             git commit -m "Update profile card"
             git push
           fi
+      # GitHub turns off schedules in public repos after 60 days without activity;
+      # re-enabling the workflow on every run resets that timer.
+      - name: Keep the schedule alive
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/update-card.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
